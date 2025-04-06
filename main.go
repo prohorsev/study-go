@@ -1,12 +1,34 @@
 package main
 
 import (
-	"fmt"
-	"github.com/fatih/color"
-	"github.com/prohorsev/study-go/greeting"
+	"net/http"
 )
 
 func main() {
-	fmt.Println(greeting.Hello())
-	color.Blue("Blue")
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Welcome to Hexlet"))
+	})
+
+	http.HandleFunc("/courses", func(w http.ResponseWriter, r *http.Request) {
+		// считываем параметр page из запроса
+		page := r.URL.Query().Get("page")
+
+		// рассчитываем, какую страницу нужно вернуть
+		var pageCourses string
+		switch page {
+		case "":
+			pageCourses = "Введите номер курса!"
+		case "1":
+			pageCourses = "Как написать свой первый \"Hello world\" на go..."
+		case "2":
+			pageCourses = "Как работает сборщик мусора в go..."
+		default:
+			pageCourses = "Курс в разработке..."
+		}
+
+		// возвращаем страницу курса
+		w.Write([]byte(pageCourses))
+	})
+
+	http.ListenAndServe(":80", nil)
 }
