@@ -1,32 +1,36 @@
 package main
 
 import (
-	"fmt"
+	"strconv"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/sirupsen/logrus"
 )
 
-var exchangeRate = map[string]float64{
-	"USD/EUR": 0.8,
-	"EUR/USD": 1.25,
-	"USD/GBP": 0.7,
-	"GBP/USD": 1.43,
-	"USD/JPY": 110,
-	"JPY/USD": 0.0091,
-}
+var postLikes = map[string]int64{}
 
 func main() {
-	webApp := fiber.New()
-	webApp.Get("/convert", func(c *fiber.Ctx) error {
-		from := c.Query("from")
-		to := c.Query("to")
-		key := from + "/" + to
-		if rate, ok := exchangeRate[key]; ok {
-			return c.SendString(fmt.Sprintf("%.2f", rate))
+	webApp := fiber.New(fiber.Config{
+		Immutable:      true,
+		ReadBufferSize: 16 * 1024})
+	webApp.Get("/", func(c *fiber.Ctx) error {
+		return c.SendString("Go to /likes/12345")
+	})
+	webApp.Get("/likes/:post_id", func(c *fiber.Ctx) error {
+		postId := c.Params("post_id", "")
+		if likes, ok := postLikes[postId]; ok {
+			return c.SendString(strconv.Itoa(int(likes)))
 		}
-
 		return c.Status(fiber.StatusNotFound).SendString("Not Found")
+	})
+	webApp.Post("/likes/:post_id", func(c *fiber.Ctx) error {
+		postId := c.Params("post_id", "")
+		if _, ok := postLikes[postId]; ok {
+			postLikes[postId] = postLikes[postId] + 1
+			return c.SendString(strconv.Itoa(int(postLikes[postId])))
+		}
+		postLikes[postId] = 1
+		return c.Status(fiber.StatusCreated).SendString(strconv.Itoa(int(postLikes[postId])))
 	})
 
 	logrus.Fatal(webApp.Listen(":8080"))

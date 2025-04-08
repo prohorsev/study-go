@@ -6,52 +6,53 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/require"
 )
 
 func TestPractice(t *testing.T) {
 	testCases := []struct {
-		name     string
-		from     string
-		to       string
-		wantCode int
-		want     string
+		name          string
+		postID        string
+		requestMethod string
+		wantCode      int
+		want          string
 	}{
 		{
-			name:     "exchange rate not found 1",
-			from:     "USD",
-			to:       "GEL",
-			wantCode: http.StatusNotFound,
-			want:     "",
+			name:          "post not found",
+			postID:        "12345",
+			requestMethod: fiber.MethodGet,
+			wantCode:      http.StatusNotFound,
+			want:          "",
 		},
 		{
-			name:     "exchange rate not found 2",
-			from:     "GEL",
-			to:       "USD",
-			wantCode: http.StatusNotFound,
-			want:     "",
+			name:          "post increment 1",
+			postID:        "12345",
+			requestMethod: fiber.MethodPost,
+			wantCode:      http.StatusCreated,
+			want:          "1",
 		},
 		{
-			name:     "positive 1",
-			from:     "EUR",
-			to:       "USD",
-			wantCode: http.StatusOK,
-			want:     "1.25",
+			name:          "post increment 2",
+			postID:        "12345",
+			requestMethod: fiber.MethodPost,
+			wantCode:      http.StatusOK,
+			want:          "2",
 		},
 		{
-			name:     "positive 2",
-			from:     "USD",
-			to:       "JPY",
-			wantCode: http.StatusOK,
-			want:     "110.00",
+			name:          "get incremented post",
+			postID:        "12345",
+			requestMethod: fiber.MethodGet,
+			wantCode:      http.StatusOK,
+			want:          "2",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			req, tErr := http.NewRequest(
-				http.MethodGet,
-				fmt.Sprintf("http://localhost:8080/convert?from=%s&to=%s", tc.from, tc.to),
+				tc.requestMethod,
+				fmt.Sprintf("http://localhost:8080/likes/%s", tc.postID),
 				nil,
 			)
 			tr := require.New(t)
