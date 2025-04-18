@@ -3,22 +3,21 @@ package main
 import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/sirupsen/logrus"
-	"slices"
+	"net/url"
 )
 
 type (
-	BinarySearchRequest struct {
-		Numbers []int `json:"numbers"`
-		Target  int   `json:"target"`
+	CreateLinkRequest struct {
+		External string `json:"external"`
+		Internal string `json:"internal"`
 	}
 
-	BinarySearchResponse struct {
-		TargetIndex int    `json:"target_index"`
-		Error       string `json:"error,omitempty"`
+	GetLinkResponse struct {
+		Internal string `json:"internal"`
 	}
 )
 
-const targetNotFound = -1
+var links = make(map[string]string)
 
 func main() {
 	webApp := fiber.New(fiber.Config{
@@ -26,28 +25,30 @@ func main() {
 	webApp.Get("/", func(c *fiber.Ctx) error {
 		return c.SendStatus(200)
 	})
-
-	webApp.Post("/search", func(c *fiber.Ctx) error {
-		var request BinarySearchRequest
-		if err := c.BodyParser(&request); err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(BinarySearchResponse{
-				TargetIndex: -1,
-				Error:       "Invalid JSON",
-			})
-		}
-		targetIndex := slices.Index(request.Numbers, request.Target)
-		if targetIndex == targetNotFound {
-			return c.Status(fiber.StatusNotFound).JSON(BinarySearchResponse{
-				TargetIndex: -1,
-				Error:       "Target was not found",
-			})
-		}
-
-		return c.JSON(BinarySearchResponse{
-			TargetIndex: targetIndex,
-			Error:       "",
-		})
-	})
+	linkHandler := &LinkHandler{}
+	webApp.Post("/links", linkHandler.CreateLink)
+	webApp.Get("/links/:external", linkHandler.GetLink)
 
 	logrus.Fatal(webApp.Listen(":8080"))
+}
+
+type LinkHandler struct{}
+
+func (h *LinkHandler) CreateLink(c *fiber.Ctx) error {
+	var request CreateLinkRequest
+	if err := c.BodyParser(&request); err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("Invalid JSON")
+	}
+	links[request.External] = request.Internal
+
+	return c.SendStatus(fiber.StatusOK)
+}
+
+func (h *LinkHandler) GetLink(c *fiber.Ctx) error {
+	external, _ := url.QueryUnescape(c.Params("external"))
+	internal, ok := links[external]
+	if !ok {
+		return c.Status(fiber.StatusNotFound).SendString("Link not found")
+	}
+	return c.JSON(GetLinkResponse{internal})
 }
