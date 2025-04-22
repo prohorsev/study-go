@@ -1,7 +1,6 @@
 package main_test
 
 import (
-	"io"
 	"net/http"
 	"strings"
 	"testing"
@@ -16,66 +15,90 @@ func TestPractice(t *testing.T) {
 		requestBody   string
 		requestMethod string
 		wantCode      int
-		wantBody      string
 	}{
 		{
-			name:          "Task not found",
-			requestPath:   "/tasks/1",
-			requestMethod: http.MethodGet,
-			wantCode:      http.StatusNotFound,
-			wantBody:      "Not Found",
-		},
-		{
-			name:          "Create a new task",
-			requestPath:   "/tasks",
+			name:          "positive case",
+			requestPath:   "/users",
 			requestMethod: http.MethodPost,
-			requestBody:   `{"description": "Learn Go", "deadline": 1620000000}`,
+			requestBody:   `{"id": 1, "email": "john@doe.com", "age": 18, "country": "USA"}`,
 			wantCode:      http.StatusOK,
-			wantBody:      `{"id":1}`,
 		},
 		{
-			name:          "Get the newly created task",
-			requestPath:   "/tasks/1",
-			requestMethod: http.MethodGet,
-			wantCode:      http.StatusOK,
-			wantBody:      `{"id":1,"description":"Learn Go","deadline":1620000000}`,
-		},
-		{
-			name:          "Update the task #1",
-			requestPath:   "/tasks/1",
-			requestMethod: http.MethodPatch,
-			requestBody:   `{"description": "Learn Go and Fiber", "deadline": 1630000000}`,
-			wantCode:      http.StatusOK,
-			wantBody:      `OK`,
-		},
-		{
-			name:          "Get the updated task #1",
-			requestPath:   "/tasks/1",
-			requestMethod: http.MethodGet,
-			wantCode:      http.StatusOK,
-			wantBody:      `{"id":1,"description":"Learn Go and Fiber","deadline":1630000000}`,
-		},
-		{
-			name:          "Delete the task #1",
-			requestPath:   "/tasks/1",
-			requestMethod: http.MethodDelete,
-			wantCode:      http.StatusOK,
-			wantBody:      `OK`,
-		},
-		{
-			name:          "Task #1 not exists",
-			requestPath:   "/tasks/1",
-			requestMethod: http.MethodGet,
-			wantCode:      http.StatusNotFound,
-			wantBody:      "Not Found",
-		},
-		{
-			name:          "Create a new task #2",
-			requestPath:   "/tasks",
+			name:          "positive case #2",
+			requestPath:   "/users",
 			requestMethod: http.MethodPost,
-			requestBody:   `{"description": "Learn Go #2", "deadline": 1620000000}`,
+			requestBody:   `{"id": 5000, "email": "john@doe.com", "age": 130, "country": "Germany"}`,
 			wantCode:      http.StatusOK,
-			wantBody:      `{"id":2}`,
+		},
+		{
+			name:          "positive case #2",
+			requestPath:   "/users",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"id": 100000, "email": "john@doe.com", "age": 130, "country": "France"}`,
+			wantCode:      http.StatusOK,
+		},
+		{
+			name:          "non-specified ID",
+			requestPath:   "/users",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"email": "john@doe.com", "age": 25, "country": "USA"}`,
+			wantCode:      http.StatusUnprocessableEntity,
+		},
+		{
+			name:          "invalid ID",
+			requestPath:   "/users",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"id": -1, "email": "john@doe.com", "age": 25, "country": "USA"}`,
+			wantCode:      http.StatusUnprocessableEntity,
+		},
+		{
+			name:          "non-specified email",
+			requestPath:   "/users",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"id": 1, "age": 25, "country": "USA"}`,
+			wantCode:      http.StatusUnprocessableEntity,
+		},
+		{
+			name:          "invalid email",
+			requestPath:   "/users",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"id": 1, "email": "john.com", "age": 25, "country": "USA"}`,
+			wantCode:      http.StatusUnprocessableEntity,
+		},
+		{
+			name:          "invalid age < 18",
+			requestPath:   "/users",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"id": 1, "email": "john@doe.com", "age": 17, "country": "USA"}`,
+			wantCode:      http.StatusUnprocessableEntity,
+		},
+		{
+			name:          "invalid age > 130",
+			requestPath:   "/users",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"id": 1, "email": "john@doe.com", "age": 131, "country": "USA"}`,
+			wantCode:      http.StatusUnprocessableEntity,
+		},
+		{
+			name:          "invalid country",
+			requestPath:   "/users",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"id": 1, "email": "john@doe.com", "age": 130, "country": "Unknown"}`,
+			wantCode:      http.StatusUnprocessableEntity,
+		},
+		{
+			name:          "non-specified age",
+			requestPath:   "/users",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"id": 1, "email": "john@doe.com", "country": "USA"}`,
+			wantCode:      http.StatusUnprocessableEntity,
+		},
+		{
+			name:          "non-specified country",
+			requestPath:   "/users",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"id": 1, "email": "john@doe.com", "age": 18}`,
+			wantCode:      http.StatusUnprocessableEntity,
 		},
 	}
 
@@ -96,11 +119,8 @@ func TestPractice(t *testing.T) {
 			tr.NoError(tErr)
 			defer resp.Body.Close()
 
-			bodyBytes, tErr := io.ReadAll(resp.Body)
 			tr.NoError(tErr)
-
 			tr.Equal(tc.wantCode, resp.StatusCode)
-			tr.Equal(tc.wantBody, string(bodyBytes))
 		})
 	}
 }
