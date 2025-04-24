@@ -1,79 +1,133 @@
 package main_test
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
-	"os"
 	"strings"
-	"sync"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+)
+
+type (
+	SignInResponse struct {
+		JWTToken string `json:"jwt_token"`
+	}
+
+	ProfileResponse struct {
+		Email string `json:"email"`
+	}
 )
 
 func TestPractice(t *testing.T) {
 	r := require.New(t)
 
-	// Send 4 parallel requests: 2 to /foo and 2 to /bar
-	// 1 request to /foo and 1 request to bar should be successful
-	// other requests should be rejected with 429 status code
+	// Sign up a user
+	testRequest(
+		r,
+		http.MethodPost,
+		"/signup",
+		"",
+		`{"email":"test@test.com","password":"qwerty"}`,
+		http.StatusOK,
+		nil,
+	)
 
-	requests := []*http.Request{
-		request(r, "/foo"),
-		request(r, "/bar"),
-		request(r, "/foo"),
-		request(r, "/bar"),
-	}
+	// Try to sign in with already existed email
+	testRequest(
+		r,
+		http.MethodPost,
+		"/signup",
+		"",
+		`{"email":"test@test.com","password":"foobar"}`,
+		http.StatusConflict,
+		nil,
+	)
 
-	wg := sync.WaitGroup{}
+	// Try to sign in with wrong email
+	testRequest(
+		r,
+		http.MethodPost,
+		"/signin",
+		"",
+		`{"email":"test2@test.com","password":"qwerty"}`,
+		http.StatusUnprocessableEntity,
+		nil,
+	)
 
-	for _, req := range requests {
-		wg.Add(1)
-		go func(req *http.Request) {
-			defer wg.Done()
+	// Try to sign in with wrong password
+	testRequest(
+		r,
+		http.MethodPost,
+		"/signin",
+		"",
+		`{"email":"test@test.com","password":"qwerty123"}`,
+		http.StatusUnprocessableEntity,
+		nil,
+	)
 
-			_, gErr := http.DefaultClient.Do(req)
-			r.NoError(gErr)
-		}(req)
-	}
+	// Sign in with the user
+	resp := SignInResponse{}
+	testRequest(
+		r,
+		http.MethodPost,
+		"/signin",
+		"",
+		`{"email":"test@test.com","password":"qwerty"}`,
+		http.StatusOK,
+		&resp,
+	)
 
-	wg.Wait()
+	// Get profile of the user
+	profileResp := ProfileResponse{}
+	testRequest(
+		r,
+		http.MethodGet,
+		"/profile",
+		resp.JWTToken,
+		"",
+		http.StatusOK,
+		&profileResp,
+	)
+	r.Equal("test@test.com", profileResp.Email)
 
-	data, _ := os.ReadFile(".log")
-	output := string(data)
-
-	lines := strings.Split(output, "\n")
-
-	expectedOutputs := []string{
-		": GET /foo - 200",
-		": GET /bar - 200",
-		": GET /foo - 429",
-		": GET /bar - 429",
-	}
-
-	for _, expectedOutput := range expectedOutputs {
-		r.Contains(output, expectedOutput)
-
-		for _, line := range lines {
-			if !strings.HasPrefix(line, expectedOutput) {
-				continue
-			}
-
-			requestID := strings.TrimSuffix(line, expectedOutput)
-			r.True(IsValidUUID(requestID), "Invalid request ID in line: %s", line)
-			break
-		}
-	}
+	// Try to get profile with invalid JWT token
+	testRequest(
+		r,
+		http.MethodGet,
+		"/profile",
+		"invalid",
+		"",
+		http.StatusUnauthorized,
+		nil,
+	)
 }
 
-func IsValidUUID(u string) bool {
-	_, err := uuid.Parse(u)
-	return err == nil
-}
+func testRequest(r *require.Assertions, method, path, jwtToken string, body string, wantCode int, responseBody interface{}) {
+	var bodyReader io.Reader
+	if body != "" {
+		bodyReader = strings.NewReader(body)
+	}
+	req, err := http.NewRequest(method, "http://localhost:8080"+path, bodyReader)
+	r.NoError(err)
 
-func request(r *require.Assertions, path string) *http.Request {
-	req, tErr := http.NewRequest(http.MethodGet, "http://localhost:8080"+path, nil)
-	r.NoError(tErr)
+	req.Header.Set("Content-Type", "application/json")
+	if jwtToken != "" {
+		req.Header.Set("Authorization", "Bearer "+jwtToken)
+	}
 
-	return req
+	httpClient := http.Client{}
+	resp, err := httpClient.Do(req)
+	r.NoError(err)
+
+	r.Equal(wantCode, resp.StatusCode)
+
+	if responseBody != nil {
+		bodyBytes, jErr := io.ReadAll(resp.Body)
+		r.NoError(jErr)
+
+		jErr = json.Unmarshal(bodyBytes, responseBody)
+		r.NoError(jErr)
+	}
 }
