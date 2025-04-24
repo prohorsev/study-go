@@ -2,125 +2,78 @@ package main_test
 
 import (
 	"net/http"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
 func TestPractice(t *testing.T) {
-	testCases := []struct {
-		name          string
-		requestPath   string
-		requestBody   string
-		requestMethod string
-		wantCode      int
-	}{
-		{
-			name:          "positive case",
-			requestPath:   "/users",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"id": 1, "email": "john@doe.com", "age": 18, "country": "USA"}`,
-			wantCode:      http.StatusOK,
-		},
-		{
-			name:          "positive case #2",
-			requestPath:   "/users",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"id": 5000, "email": "john@doe.com", "age": 130, "country": "Germany"}`,
-			wantCode:      http.StatusOK,
-		},
-		{
-			name:          "positive case #2",
-			requestPath:   "/users",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"id": 100000, "email": "john@doe.com", "age": 130, "country": "France"}`,
-			wantCode:      http.StatusOK,
-		},
-		{
-			name:          "non-specified ID",
-			requestPath:   "/users",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"email": "john@doe.com", "age": 25, "country": "USA"}`,
-			wantCode:      http.StatusUnprocessableEntity,
-		},
-		{
-			name:          "invalid ID",
-			requestPath:   "/users",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"id": -1, "email": "john@doe.com", "age": 25, "country": "USA"}`,
-			wantCode:      http.StatusUnprocessableEntity,
-		},
-		{
-			name:          "non-specified email",
-			requestPath:   "/users",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"id": 1, "age": 25, "country": "USA"}`,
-			wantCode:      http.StatusUnprocessableEntity,
-		},
-		{
-			name:          "invalid email",
-			requestPath:   "/users",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"id": 1, "email": "john.com", "age": 25, "country": "USA"}`,
-			wantCode:      http.StatusUnprocessableEntity,
-		},
-		{
-			name:          "invalid age < 18",
-			requestPath:   "/users",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"id": 1, "email": "john@doe.com", "age": 17, "country": "USA"}`,
-			wantCode:      http.StatusUnprocessableEntity,
-		},
-		{
-			name:          "invalid age > 130",
-			requestPath:   "/users",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"id": 1, "email": "john@doe.com", "age": 131, "country": "USA"}`,
-			wantCode:      http.StatusUnprocessableEntity,
-		},
-		{
-			name:          "invalid country",
-			requestPath:   "/users",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"id": 1, "email": "john@doe.com", "age": 130, "country": "Unknown"}`,
-			wantCode:      http.StatusUnprocessableEntity,
-		},
-		{
-			name:          "non-specified age",
-			requestPath:   "/users",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"id": 1, "email": "john@doe.com", "country": "USA"}`,
-			wantCode:      http.StatusUnprocessableEntity,
-		},
-		{
-			name:          "non-specified country",
-			requestPath:   "/users",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"id": 1, "email": "john@doe.com", "age": 18}`,
-			wantCode:      http.StatusUnprocessableEntity,
-		},
+	r := require.New(t)
+
+	// Send 4 parallel requests: 2 to /foo and 2 to /bar
+	// 1 request to /foo and 1 request to bar should be successful
+	// other requests should be rejected with 429 status code
+
+	requests := []*http.Request{
+		request(r, "/foo"),
+		request(r, "/bar"),
+		request(r, "/foo"),
+		request(r, "/bar"),
 	}
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			req, tErr := http.NewRequest(
-				tc.requestMethod,
-				"http://localhost:8080"+tc.requestPath,
-				strings.NewReader(tc.requestBody),
-			)
-			tr := require.New(t)
-			tr.NoError(tErr)
+	wg := sync.WaitGroup{}
 
-			req.Header.Set("Content-Type", "application/json")
+	for _, req := range requests {
+		wg.Add(1)
+		go func(req *http.Request) {
+			defer wg.Done()
 
-			httpClient := http.Client{}
-			resp, tErr := httpClient.Do(req)
-			tr.NoError(tErr)
-			defer resp.Body.Close()
-
-			tr.NoError(tErr)
-			tr.Equal(tc.wantCode, resp.StatusCode)
-		})
+			_, gErr := http.DefaultClient.Do(req)
+			r.NoError(gErr)
+		}(req)
 	}
+
+	wg.Wait()
+
+	data, _ := os.ReadFile(".log")
+	output := string(data)
+
+	lines := strings.Split(output, "\n")
+
+	expectedOutputs := []string{
+		": GET /foo - 200",
+		": GET /bar - 200",
+		": GET /foo - 429",
+		": GET /bar - 429",
+	}
+
+	for _, expectedOutput := range expectedOutputs {
+		r.Contains(output, expectedOutput)
+
+		for _, line := range lines {
+			if !strings.HasPrefix(line, expectedOutput) {
+				continue
+			}
+
+			requestID := strings.TrimSuffix(line, expectedOutput)
+			r.True(IsValidUUID(requestID), "Invalid request ID in line: %s", line)
+			break
+		}
+	}
+}
+
+func IsValidUUID(u string) bool {
+	_, err := uuid.Parse(u)
+	return err == nil
+}
+
+func request(r *require.Assertions, path string) *http.Request {
+	req, tErr := http.NewRequest(http.MethodGet, "http://localhost:8080"+path, nil)
+	r.NoError(tErr)
+
+	return req
 }
