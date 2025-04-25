@@ -1,7 +1,6 @@
 package main_test
 
 import (
-	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -10,124 +9,119 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type (
-	SignInResponse struct {
-		JWTToken string `json:"jwt_token"`
-	}
-
-	ProfileResponse struct {
-		Email string `json:"email"`
-	}
-)
-
 func TestPractice(t *testing.T) {
-	r := require.New(t)
+	testCases := []struct {
+		name          string
+		requestPath   string
+		requestBody   string
+		requestMethod string
+		wantCode      int
+		wantBody      string
+	}{
+		{
+			name:          "Create item #1",
+			requestPath:   "/items",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"name": "item1", "price": 100}`,
+			wantCode:      http.StatusOK,
+			wantBody:      "OK",
+		},
+		{
+			name:          "Create item #2",
+			requestPath:   "/items",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"name": "item2", "price": 200}`,
+			wantCode:      http.StatusOK,
+			wantBody:      "OK",
+		},
+		{
+			name:          "View items",
+			requestPath:   "/items/view",
+			requestMethod: http.MethodGet,
+			requestBody:   `{"name": "item2", "price": 200}`,
+			wantCode:      http.StatusOK,
+			wantBody: `
+<!DOCTYPE html>
+<html>
+<body>
 
-	// Sign up a user
-	testRequest(
-		r,
-		http.MethodPost,
-		"/signup",
-		"",
-		`{"email":"test@test.com","password":"qwerty"}`,
-		http.StatusOK,
-		nil,
-	)
+<h1>Список Товаров</h1>
 
-	// Try to sign in with already existed email
-	testRequest(
-		r,
-		http.MethodPost,
-		"/signup",
-		"",
-		`{"email":"test@test.com","password":"foobar"}`,
-		http.StatusConflict,
-		nil,
-	)
+<div>
+    <h2>item1</h2>
+    <p>Цена $100</p>
+</div>
+<div>
+    <h2>item2</h2>
+    <p>Цена $200</p>
+</div>
 
-	// Try to sign in with wrong email
-	testRequest(
-		r,
-		http.MethodPost,
-		"/signin",
-		"",
-		`{"email":"test2@test.com","password":"qwerty"}`,
-		http.StatusUnprocessableEntity,
-		nil,
-	)
+</body>
+</html>
+`,
+		},
+		{
+			name:          "Create item #3",
+			requestPath:   "/items",
+			requestMethod: http.MethodPost,
+			requestBody:   `{"name": "item3", "price": 300}`,
+			wantCode:      http.StatusOK,
+			wantBody:      "OK",
+		},
+		{
+			name:          "View items #2",
+			requestPath:   "/items/view",
+			requestMethod: http.MethodGet,
+			requestBody:   `{"name": "item3", "price": 300}`,
+			wantCode:      http.StatusOK,
+			wantBody: `
+<!DOCTYPE html>
+<html>
+<body>
 
-	// Try to sign in with wrong password
-	testRequest(
-		r,
-		http.MethodPost,
-		"/signin",
-		"",
-		`{"email":"test@test.com","password":"qwerty123"}`,
-		http.StatusUnprocessableEntity,
-		nil,
-	)
+<h1>Список Товаров</h1>
 
-	// Sign in with the user
-	resp := SignInResponse{}
-	testRequest(
-		r,
-		http.MethodPost,
-		"/signin",
-		"",
-		`{"email":"test@test.com","password":"qwerty"}`,
-		http.StatusOK,
-		&resp,
-	)
+<div>
+    <h2>item1</h2>
+    <p>Цена $100</p>
+</div>
+<div>
+    <h2>item2</h2>
+    <p>Цена $200</p>
+</div>
+<div>
+    <h2>item3</h2>
+    <p>Цена $300</p>
+</div>
 
-	// Get profile of the user
-	profileResp := ProfileResponse{}
-	testRequest(
-		r,
-		http.MethodGet,
-		"/profile",
-		resp.JWTToken,
-		"",
-		http.StatusOK,
-		&profileResp,
-	)
-	r.Equal("test@test.com", profileResp.Email)
-
-	// Try to get profile with invalid JWT token
-	testRequest(
-		r,
-		http.MethodGet,
-		"/profile",
-		"invalid",
-		"",
-		http.StatusUnauthorized,
-		nil,
-	)
-}
-
-func testRequest(r *require.Assertions, method, path, jwtToken string, body string, wantCode int, responseBody interface{}) {
-	var bodyReader io.Reader
-	if body != "" {
-		bodyReader = strings.NewReader(body)
-	}
-	req, err := http.NewRequest(method, "http://localhost:8080"+path, bodyReader)
-	r.NoError(err)
-
-	req.Header.Set("Content-Type", "application/json")
-	if jwtToken != "" {
-		req.Header.Set("Authorization", "Bearer "+jwtToken)
+</body>
+</html>
+`,
+		},
 	}
 
-	httpClient := http.Client{}
-	resp, err := httpClient.Do(req)
-	r.NoError(err)
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, tErr := http.NewRequest(
+				tc.requestMethod,
+				"http://localhost:8080"+tc.requestPath,
+				strings.NewReader(tc.requestBody),
+			)
+			tr := require.New(t)
+			tr.NoError(tErr)
 
-	r.Equal(wantCode, resp.StatusCode)
+			req.Header.Set("Content-Type", "application/json")
 
-	if responseBody != nil {
-		bodyBytes, jErr := io.ReadAll(resp.Body)
-		r.NoError(jErr)
+			httpClient := http.Client{}
+			resp, tErr := httpClient.Do(req)
+			tr.NoError(tErr)
+			defer resp.Body.Close()
 
-		jErr = json.Unmarshal(bodyBytes, responseBody)
-		r.NoError(jErr)
+			bodyBytes, tErr := io.ReadAll(resp.Body)
+			tr.NoError(tErr)
+
+			tr.Equal(tc.wantCode, resp.StatusCode)
+			tr.Equal(strings.ReplaceAll(tc.wantBody, "\n", ""), strings.ReplaceAll(string(bodyBytes), "\n", ""))
+		})
 	}
 }
