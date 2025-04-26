@@ -1,127 +1,80 @@
 package main_test
 
 import (
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/require"
 )
 
+type slowConn struct {
+	net.Conn
+	sr slowReader
+}
+
+func newSlowConn(conn net.Conn) net.Conn {
+	return slowConn{conn, slowReader{conn}}
+}
+
+func (conn slowConn) Read(data []byte) (int, error) {
+	return conn.sr.Read(data)
+}
+
+type slowReader struct {
+	r io.Reader
+}
+
+func (r slowReader) Read(data []byte) (int, error) {
+	// wait for 500 ms before reading a single byte.
+	time.Sleep(500 * time.Millisecond)
+	n, err := r.r.Read(data[:1])
+	if n > 0 {
+		fmt.Printf("%s", data[:1])
+	}
+	return n, err
+}
+
 func TestPractice(t *testing.T) {
-	testCases := []struct {
-		name          string
-		requestPath   string
-		requestBody   string
-		requestMethod string
-		wantCode      int
-		wantBody      string
-	}{
-		{
-			name:          "Create item #1",
-			requestPath:   "/items",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"name": "item1", "price": 100}`,
-			wantCode:      http.StatusOK,
-			wantBody:      "OK",
-		},
-		{
-			name:          "Create item #2",
-			requestPath:   "/items",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"name": "item2", "price": 200}`,
-			wantCode:      http.StatusOK,
-			wantBody:      "OK",
-		},
-		{
-			name:          "View items",
-			requestPath:   "/items/view",
-			requestMethod: http.MethodGet,
-			requestBody:   `{"name": "item2", "price": 200}`,
-			wantCode:      http.StatusOK,
-			wantBody: `
-<!DOCTYPE html>
-<html>
-<body>
 
-<h1>Список Товаров</h1>
+	t.Run("bad_request", func(t *testing.T) {
+		tr := require.New(t)
 
-<div>
-    <h2>item1</h2>
-    <p>Цена $100</p>
-</div>
-<div>
-    <h2>item2</h2>
-    <p>Цена $200</p>
-</div>
+		testRequest(tr, "{", fiber.StatusBadRequest, "Invalid JSON")
+	})
 
-</body>
-</html>
-`,
-		},
-		{
-			name:          "Create item #3",
-			requestPath:   "/items",
-			requestMethod: http.MethodPost,
-			requestBody:   `{"name": "item3", "price": 300}`,
-			wantCode:      http.StatusOK,
-			wantBody:      "OK",
-		},
-		{
-			name:          "View items #2",
-			requestPath:   "/items/view",
-			requestMethod: http.MethodGet,
-			requestBody:   `{"name": "item3", "price": 300}`,
-			wantCode:      http.StatusOK,
-			wantBody: `
-<!DOCTYPE html>
-<html>
-<body>
+	t.Run("panics", func(t *testing.T) {
+		tr := require.New(t)
 
-<h1>Список Товаров</h1>
+		testRequest(tr, `{"user_id":1,"message":"Hello world!"}`, fiber.StatusOK, "OK")
+		testRequest(tr, `{"user_id":2,"message":"Hello world2!"}`, fiber.StatusOK, "OK")
+		testRequest(tr, `{"user_id":3,"message":"Hello world3!"}`, fiber.StatusOK, "OK")
+		testRequest(tr, `{"user_id":4,"message":"Hello world4!"}`, fiber.StatusInternalServerError, "Queue is full")
+	})
+}
 
-<div>
-    <h2>item1</h2>
-    <p>Цена $100</p>
-</div>
-<div>
-    <h2>item2</h2>
-    <p>Цена $200</p>
-</div>
-<div>
-    <h2>item3</h2>
-    <p>Цена $300</p>
-</div>
-
-</body>
-</html>
-`,
-		},
+func testRequest(r *require.Assertions, body string, wantCode int, wantBody string) {
+	var bodyReader io.Reader
+	if body != "" {
+		bodyReader = strings.NewReader(body)
 	}
+	req, err := http.NewRequest(http.MethodPost, "http://localhost:8080/push/send", bodyReader)
+	r.NoError(err)
 
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			req, tErr := http.NewRequest(
-				tc.requestMethod,
-				"http://localhost:8080"+tc.requestPath,
-				strings.NewReader(tc.requestBody),
-			)
-			tr := require.New(t)
-			tr.NoError(tErr)
+	req.Header.Set("Content-Type", "application/json")
 
-			req.Header.Set("Content-Type", "application/json")
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	r.NoError(err)
 
-			httpClient := http.Client{}
-			resp, tErr := httpClient.Do(req)
-			tr.NoError(tErr)
-			defer resp.Body.Close()
+	bodyBytes, err := io.ReadAll(resp.Body)
+	r.NoError(err)
 
-			bodyBytes, tErr := io.ReadAll(resp.Body)
-			tr.NoError(tErr)
-
-			tr.Equal(tc.wantCode, resp.StatusCode)
-			tr.Equal(strings.ReplaceAll(tc.wantBody, "\n", ""), strings.ReplaceAll(string(bodyBytes), "\n", ""))
-		})
-	}
+	r.Equal(wantCode, resp.StatusCode)
+	r.Equal(wantBody, string(bodyBytes))
 }

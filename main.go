@@ -1,61 +1,52 @@
 package main
 
 import (
-	"fmt"
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/template/html/v2"
+	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/sirupsen/logrus"
+	"time"
 )
 
 type (
-	CreateItemRequest struct {
-		Name  string `json:"name"`
-		Price uint   `json:"price"`
+	SendPushNotificationRequest struct {
+		Message string `json:"message"`
+		UserID  int64  `json:"user_id"`
 	}
 
-	Item struct {
-		Name  string `json:"name"`
-		Price uint   `json:"price"`
+	PushNotification struct {
+		Message string `json:"message"`
+		UserID  int64  `json:"user_id"`
 	}
-
-	ItemsHandler struct{}
 )
 
-var (
-	items []Item
-)
+var pushNotificationsQueue []PushNotification
 
 func main() {
-	viewsEngine := html.New("./templates", ".tmpl")
 	webApp := fiber.New(fiber.Config{
-		Views:          viewsEngine,
-		ReadBufferSize: 16 * 1024,
+		ReadTimeout:  300 * time.Millisecond,
+		WriteTimeout: 300 * time.Millisecond,
 	})
-	itemsHandler := ItemsHandler{}
-
+	webApp.Use(recover.New())
 	webApp.Get("/", func(c *fiber.Ctx) error {
 		return c.SendStatus(200)
 	})
-	webApp.Post("/items", itemsHandler.Create)
-	webApp.Get("/items/view", itemsHandler.View)
+
+	webApp.Post("/push/send", func(c *fiber.Ctx) error {
+		var req SendPushNotificationRequest
+		if err := c.BodyParser(&req); err != nil {
+			return c.Status(fiber.StatusBadRequest).SendString("Invalid JSON")
+		}
+
+		pushNotificationsQueue = append(pushNotificationsQueue, PushNotification{
+			Message: req.Message,
+			UserID:  req.UserID,
+		})
+		if len(pushNotificationsQueue) > 3 {
+			panic("Queue is full")
+		}
+
+		return c.SendString("OK")
+	})
 
 	logrus.Fatal(webApp.Listen(":8080"))
-}
-
-func (h *ItemsHandler) Create(c *fiber.Ctx) error {
-	req := CreateItemRequest{}
-	if err := c.BodyParser(&req); err != nil {
-		return fmt.Errorf("body parser: %w", err)
-	}
-
-	items = append(items, Item{
-		Name:  req.Name,
-		Price: req.Price,
-	})
-	logrus.Info(items)
-	return c.SendString("OK")
-}
-
-func (h *ItemsHandler) View(c *fiber.Ctx) error {
-	return c.Render("items", items)
 }
